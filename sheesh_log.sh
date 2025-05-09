@@ -42,37 +42,68 @@ filter_logs_by_user() {
 }
 
 monitor_logins() {
-  local last_login_count=$(wc -l < "$LOG_FILE" | awk '{print $1}')
-  tail -n 100 "$AUTH_LOG" | grep "Accepted password" | while IFS= read -r line; do
-    grep -qF "$line" "$LOG_FILE" || {
-      timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
-      username=$(echo "$line" | awk '{print $10}')
-      log_message "LOGIN: User '$username' logged in at '$timestamp'"
-    }
-  done
+    while true; do
+        tail -n 50 /var/log/auth.log | grep "session opened for user" | while read -r line; do
+            user=$(echo "$line" | grep -oP "session opened for user \K\w+")
+            timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+            echo "[$timestamp] Login detected for user $user" >> session.log
+        done
+        sleep 5
+    done
 }
+
+
 
 show_menu() {
   while true; do
-    echo -e "\nSheesh Log Menu:"
-    echo "1. View Logs"
-    echo "2. Filter Logs by User"
-    echo "3. Clear Logs"
-    echo "4. Monitor Logins (Background)"
-    echo "5. Exit"
-    echo -e "Enter your choice:"
-    read -r choice
+    CHOICE=$(dialog --clear --backtitle "Sheesh Log - Login Monitor" \
+      --title "Main Menu" \
+      --menu "Choose an option:" 15 50 6 \
+      1 "View Logs" \
+      2 "Filter Logs by User" \
+      3 "Clear Logs" \
+      4 "Monitor Logins (Background)" \
+      5 "Exit" \
+      3>&1 1>&2 2>&3)
 
-    case "$choice" in
-      1) view_logs ;;
-      2) filter_logs_by_user ;;
-      3) clear_log ;;
-      4) monitor_logins & log_message "Login monitoring started in the background.";;
-      5) echo "Exiting Sheesh Log." ; exit 0 ;;
-      *) echo "Invalid choice. Please try again." ;;
+    clear
+
+    case $CHOICE in
+      1)
+        dialog --textbox "$LOG_FILE" 20 70
+        ;;
+      2)
+        username=$(dialog --inputbox "Enter username to filter:" 10 40 3>&1 1>&2 2>&3)
+        grep "$username" "$LOG_FILE" > /tmp/filtered_log.txt
+        dialog --textbox /tmp/filtered_log.txt 20 70
+        ;;
+      3)
+        dialog --yesno "Are you sure you want to clear the log file?" 10 40
+        response=$?
+        if [ "$response" -eq 0 ]; then
+          > "$LOG_FILE"
+          log_message "LOG CLEARED by user $(whoami)"
+          dialog --msgbox "Log file cleared." 10 40
+        else
+          dialog --msgbox "Log clearing cancelled." 10 40
+        fi
+        ;;
+      4)
+        monitor_logins &
+        log_message "Login monitoring started in the background."
+        dialog --msgbox "Login monitoring started in background." 10 40
+        ;;
+      5)
+        clear
+        exit 0
+        ;;
+      *)
+        dialog --msgbox "Invalid choice." 10 40
+        ;;
     esac
   done
 }
+
 
 # --- Main Execution ---
 
